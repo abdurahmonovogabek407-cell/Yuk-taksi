@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yandex.Yuk - Mijoz Ilovasi</title>
+    <link rel="stylesheet" href="https://unpkg.com" />
+    <link rel="stylesheet" href="https://unpkg.com" />
+    <link rel="stylesheet" href="style.css" />
+    <link rel="manifest" href="manifest.json" />
+</head>
+<body>
+    <div id="gpsBlocker">
+        <h2>🔒 Geolokatsiya talab qilinadi</h2>
+        <p>GPS xizmatini yoqing va ruxsat bering.</p>
+        <button class="btn" style="width:auto; padding:10px 20px;" onclick="checkGPS()">Qayta tekshirish</button>
+    </div>
+
+    <div id="authScreen">
+        <div class="auth-container">
+            <h2>Mijoz Tizimiga Kirish</h2>
+            <div class="auth-toggle">
+                <span id="tabLogin" class="active" onclick="switchAuthTab('login')">Kirish</span>
+                <span id="tabRegister" onclick="switchAuthTab('register')">Ro'yxatdan o'tish</span>
+            </div>
+            <div id="registerFields" style="display:none;"><input type="text" id="authName" placeholder="Ismingiz"></div>
+            <input type="tel" id="authPhone" placeholder="Telefon raqamingiz (+998)">
+            <input type="password" id="authPassword" placeholder="Parol">
+            <button class="btn" id="authBtn" onclick="handleAuth()">Tizimga kirish</button>
+        </div>
+    </div>
+
+    <header>🛻 Yandex.Yuk - Mijoz Ekrani</header>
+
+    <div id="mapPage" class="app-page active">
+        <div class="main-content">
+            <div id="map"></div>
+            <div id="clientPanel" class="panel active">
+                <h3>Yuk buyurtma qilish</h3>
+                <div class="price-box">Masofa: <span id="etaDist">0.0</span> km | Narx: <span id="etaPrice">15,000</span> so'm</div>
+                <p style="font-size: 11px; color:#666; margin-bottom: 8px;">💡 Xaritadan yuk boradigan joyni bosing.</p>
+                <input type="text" id="targetAddress" placeholder="Qayerga yuk yetkaziladi?">
+                <input type="number" id="customPrice" placeholder="O'z narxingiz (ixtiyoriy)">
+                
+                <div class="truck-info" style="flex-wrap: wrap; gap: 5px;">
+                    <div class="truck-type selected" style="width:31%;" id="typeLabo" onclick="selectTruck('Labo')">🛻 Labo</div>
+                    <div class="truck-type" style="width:31%;" id="typeGazel" onclick="selectTruck('Gazel')">🚛 Gazel</div>
+                    <div class="truck-type" style="width:34%; font-size:11px; padding:5px;" id="typeHeavy" onclick="selectTruck('Heavy')">🚚 5T / 12M Tirkama</div>
+                </div>
+                <button class="btn" onclick="placeOrder()">Buyurtma berish</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="historyPage" class="app-page">
+        <h3>Mening buyurtmalarim</h3>
+        <div id="historyList" style="margin-top:15px; color:#777;">Hozircha buyurtmalar yo'q.</div>
+    </div>
+
+    <div class="bottom-nav">
+        <div class="nav-item active" id="navMap" onclick="switchPage('map')">🗺️ Xarita</div>
+        <div class="nav-item" id="navHistory" onclick="switchPage('history')">📜 Tarix</div>
+    </div>
+
+    <script src="https://unpkg.com"></script>
+    <script src="https://unpkg.com"></script>
+    <script src="https://gstatic.com"></script>
+    <script src="https://gstatic.com"></script>
+    <script>
+        const firebaseConfig = { databaseURL: "https://firebaseio.com" };
+        firebase.initializeApp(firebaseConfig); const database = firebase.database();
+        let map, clientLocation = [39.6385, 66.6953], routingControl, currentUser = null;
+        let selectedTruckType = 'Labo', calculatedDistance = 0.0, authMode = 'login';
+
+        function checkGPS() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition((p) => {
+                    clientLocation = [p.coords.latitude, p.coords.longitude];
+                    document.getElementById('gpsBlocker').style.display = 'none';
+                    initMap();
+                }, () => { document.getElementById('gpsBlocker').style.display = 'none'; initMap(); });
+            }
+        }
+        window.onload = checkGPS;
+
+        function initMap() {
+            map = L.map('map').setView(clientLocation, 14);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+            L.marker(clientLocation).addTo(map).bindPopup("Siz shu yerdasiz").openPopup();
+            map.on('click', (e) => { if(currentUser) drawRoute(e.latlng); });
+        }
+
+        function drawRoute(target) {
+            if (routingControl) map.removeControl(routingControl);
+            routingControl = L.Routing.control({
+                waypoints: [L.latLng(clientLocation), L.latLng(target)],
+                router: L.Routing.osrmv1({ serviceUrl: 'https://project-osrm.org' }),
+                createMarker: () => null, show: false
+            }).addTo(map);
+            routingControl.on('routesfound', (e) => {
+                calculatedDistance = (e.routes.summary.totalDistance / 1000).toFixed(1);
+                recalculatePrice();
+            });
+        }
+
+        function recalculatePrice() {
+            let basePrice = selectedTruckType === 'Labo' ? 12000 : selectedTruckType === 'Gazel' ? 20000 : 45000;
+            let totalPrice = Math.round(basePrice * calculatedDistance);
+            if(totalPrice < 15000) totalPrice = 15000;
+            document.getElementById('etaDist').innerText = calculatedDistance;
+            document.getElementById('etaPrice').innerText = totalPrice.toLocaleString();
+        }
+
+        /* Truck info toggling */
+        function selectTruck(type) {
+            selectedTruckType = type;
+            document.getElementById('typeLabo').classList.toggle('selected', type === 'Labo');
+            document.getElementById('typeGazel').classList.toggle('selected', type === 'Gazel');
+            document.getElementById('typeHeavy').classList.toggle('selected', type === 'Heavy');
+            recalculatePrice();
+        }
+
+        function switchAuthTab(mode) {
+            authMode = mode;
+            document.getElementById('tabLogin').classList.toggle('active', mode === 'login');
+            document.getElementById('tabRegister').classList.toggle('active', mode === 'register');
+            document.getElementById('registerFields').style.display = mode === 'register' ? 'block' : 'none';
+        }
+
+        function handleAuth() {
+            let phone = document.getElementById('authPhone').value.trim();
+            if(!phone) return alert("Raqam kiriting!");
+            currentUser = { phone: phone };
+            document.getElementById('authScreen').style.display = 'none';
+            loadHistory();
+        }
+
+        function placeOrder() {
+            let addr = document.getElementById('targetAddress').value.trim();
+            if(!addr || calculatedDistance == 0) return alert("Manzilni kiriting va xaritani bosing!");
+            database.ref('orders').push({
+                client: currentUser.phone, address: addr, truck: selectedTruckType,
+                distance: calculatedDistance + " km", price: document.getElementById('etaPrice').innerText + " so'm",
+                status: "Kutilmoqda", time: new Date().toLocaleTimeString()
+            }).then(() => { alert("🚀 Buyurtma yuborildi!"); });
+        }
+
+        function switchPage(p) {
+            document.getElementById('mapPage').classList.toggle('active', p === 'map');
+            document.getElementById('historyPage').classList.toggle('active', p === 'history');
+            document.getElementById('navMap').classList.toggle('active', p === 'map');
+            document.getElementById('navHistory').classList.toggle('active', p === 'history');
+        }
+        
+        function loadHistory() {
+            database.ref('orders').on('value', (s) => {
+                let list = document.getElementById('historyList'); list.innerHTML = "";
+                if(!s.val()) return list.innerHTML = "Hozircha buyurtmalar yo'q.";
+                Object.values(s.val()).forEach(o => {
+                    if(o.client === currentUser.phone) {
+                        list.innerHTML += `<div class="history-item"><b>${o.address}</b><br>${o.truck} | ${o.price} | ${o.status}</div>`;
+                    }
+                });
+            });
+        }
+    </script>
+</body>
+</html>
