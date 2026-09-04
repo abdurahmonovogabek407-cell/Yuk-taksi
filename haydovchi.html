@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yandex.Yuk - Haydovchi (Pro)</title>
+    <link rel="stylesheet" href="https://unpkg.com" />
+    <link rel="stylesheet" href="style.css" />
+    <link rel="manifest" href="manifest.json" />
+</head>
+<body>
+    <div id="authScreen" style="display: flex;">
+        <div class="auth-container">
+            <h2>Yandex.Yuk Haydovchi Tizimi</h2>
+            <input type="tel" id="authPhone" placeholder="Telefon raqamingiz (+998)">
+            <input type="password" id="authPassword" placeholder="Parol">
+            <button class="btn" onclick="handleDriverAuth()">Haydovchi bo'lib kirish</button>
+        </div>
+    </div>
+
+    <header>Layout: Yandex.Yuk - Haydovchi Ekrani</header>
+
+    <div class="main-content">
+        <div id="map"></div>
+        <div id="driverPanel" class="panel active" style="max-height: 45vh; overflow-y: auto;">
+            <h3>Faol Buyurtmalar Doskasi</h3>
+            <button class="btn" style="background:#28a745; color:white; margin: 10px 0;" onclick="startGPSTracking()">🟢 GPS Uzatishni Yoqish</button>
+            <div id="gpsStatus" style="font-size:12px; font-weight:bold; color:green; margin-bottom:10px;"></div>
+            <div id="driverOrdersList" style="font-size:13px; color:#555;">Mijozlar buyurtmalari kutilmoqda...</div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com"></script>
+    <script src="https://gstatic.com"></script>
+    <script src="https://gstatic.com"></script>
+    <script>
+        const firebaseConfig = { databaseURL: "https://firebaseio.com" };
+        firebase.initializeApp(firebaseConfig); const database = firebase.database();
+        let map, driverLocation = [39.6385, 66.6953], driverMarker, currentUser = null;
+
+        function handleDriverAuth() {
+            let phone = document.getElementById('authPhone').value.trim();
+            if(!phone) return alert("Raqam kiriting!");
+            currentUser = { phone: phone };
+            document.getElementById('authScreen').style.display = 'none';
+            initDriverMap();
+            listenActiveOrders();
+        }
+
+        function initDriverMap() {
+            map = L.map('map').setView(driverLocation, 14);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+            driverMarker = L.marker(driverLocation).addTo(map).bindPopup("Sizning joylashuvingiz");
+        }
+
+        function startGPSTracking() {
+            if (navigator.geolocation) {
+                navigator.geolocation.watchPosition((p) => {
+                    let lat = p.coords.latitude, lng = p.coords.longitude;
+                    driverMarker.setLatLng([lat, lng]);
+                    map.setView([lat, lng]);
+                    document.getElementById('gpsStatus').innerText = "GPS faol: Joylashuv uzatilmoqda! 🟢";
+                    database.ref('drivers/' + currentUser.phone.replace('+', '')).set({ lat: lat, lng: lng, time: new Date().toLocaleTimeString() });
+                }, null, { enableHighAccuracy: true });
+            }
+        }
+
+        function listenActiveOrders() {
+            database.ref('orders').on('value', (snapshot) => {
+                let container = document.getElementById('driverOrdersList');
+                container.innerHTML = "";
+                let data = snapshot.val();
+                if(!data) { container.innerHTML = "Hozircha faol buyurtmalar yo'q."; return; }
+
+                Object.entries(data).reverse().forEach(([orderId, order]) => {
+                    if(order.status === "Kutilmoqda") {
+                        let card = document.createElement('div');
+                        card.className = 'history-item';
+                        card.style.borderLeft = order.truck === 'Heavy' ? '4px solid #d9534f' : '4px solid #ffcc00';
+                        card.innerHTML = `
+                            <strong>📍 Manzil:</strong> ${order.address}<br>
+                            <strong>📦 Toifa:</strong> ${order.truck === 'Heavy' ? '🚚 5 Tonna / 12 Metr (Tirkama)' : order.truck}<br>
+                            <strong>📏 Masofa:</strong> ${order.distance} | <strong>💰 Narx:</strong> ${order.price}<br>
+                            <button class="btn" style="margin-top:8px; padding:6px; background:#111; color:#fff;" onclick="acceptOrder('${orderId}')">Buyurtmani Qabul Qilish</button>
+                        `;
+                        container.appendChild(card);
+                    }
+                });
+            });
+        }
+
+        function acceptOrder(id) {
+            database.ref('orders/' + id).update({ status: "Haydovchi qabul qildi", driver: currentUser.phone });
+            alert("✅ Buyurtma qabul qilindi!");
+        }
+    </script>
+</body>
+</html>
